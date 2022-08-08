@@ -343,4 +343,85 @@ def cal_sampler_prob(fafile):
                     prob.append(prob_dic[group])
     return prob
 
+import random
+def set_rand_seed(seed=1, backends=True):
+    print("Random Seed: ", seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.enabled = backends
+    torch.backends.cudnn.benchmark = backends
+    torch.backends.cudnn.deterministic = not backends
+
+def _split_train_valid_test(groups, train_keys, valid_keys, test_keys=None):
+    """
+    groups: length N, the number of samples
+    train
+    """
+    assert isinstance(train_keys, list)
+    assert isinstance(valid_keys, list)
+    assert test_keys is None or isinstance(test_keys, list)
+    index = np.arange(len(groups))
+    train_idx = index[np.isin(groups, train_keys)]
+    valid_idx = index[np.isin(groups, valid_keys)]
+    if test_keys is not None:
+        test_idx = index[np.isin(groups, test_keys)]
+        return train_idx, valid_idx, test_idx
+    else:
+        return train_idx, valid_idx
+
+
+def split_train_valid_test(sample_number: int, val_ratio: float, test_ratio: float, stratify: Iterable = None) -> Tuple[
+    Iterable[int], Iterable[int], Iterable[int]]:
+    r"""
+    Description
+    ------------
+    Randomly split train/validation/test data
+
+    Arguments
+    ---------
+    stratify: split by groups
+
+    Return
+    -------
+    train_inds : List[int]
+    val_inds : List[int]
+    test_inds : List[int]
+    """
+    val_ratio = 0 if val_ratio is None else val_ratio
+    test_ratio = 0 if test_ratio is None else test_ratio
+    assert val_ratio + test_ratio > 0 and val_ratio + test_ratio < 1, "{},{}".format(val_ratio, test_ratio)
+    all_inds = np.arange(sample_number)
+    from sklearn.model_selection import train_test_split
+
+    train_val_inds, test_inds = train_test_split(all_inds, test_size=test_ratio, stratify=stratify)
+    val_ratio = val_ratio / (1 - test_ratio)
+    if stratify is not None:
+        stratify = np.asarray(stratify)[train_val_inds]
+    train_inds, val_inds = train_test_split(train_val_inds, test_size=val_ratio, stratify=stratify)
+
+    return train_inds, val_inds, test_inds
+
+
+def split_train_val_test_by_group(groups: List[Any], n_splits: int, val_folds: int, test_folds: int) -> Tuple[
+    List, List, List]:
+    from sklearn.model_selection import GroupKFold
+    splitter = GroupKFold(n_splits=n_splits)
+    train_inds, val_inds, test_inds = list(), list(), list()
+    for i, (_, inds) in enumerate(splitter.split(groups, groups=groups)):
+        if i < val_folds:
+            train_inds.append(inds)
+        elif i >= val_folds and i < test_folds:
+            val_inds.append(inds)
+        else:
+            test_inds.append(inds)
+    train_inds = np.concatenate(train_inds)
+    if val_folds > 0:
+        val_inds = np.concatenate(val_inds)
+    if test_folds:
+        test_inds = np.concatenate(test_inds)
+    return train_inds, val_inds, test_inds
+
 
